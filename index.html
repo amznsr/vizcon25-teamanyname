@@ -115,58 +115,72 @@
 
 function loadCSVData() {
     showLoader();
-    Papa.parse('bird_data.csv', {
-        download: true,
-        header: true,
-        dynamicTyping: true,
-        complete: function(results) {
-            try {
-                birdData = results.data
-                    .filter(row => row.Bird_ID && row.Species && row.Start_Latitude && row.Start_Longitude && 
-                                 row.End_Latitude && row.End_Longitude)
-                    .map(row => ({
-                        id: row.Bird_ID,
-                        species: row.Species,
-                        startLat: Number(row.Start_Latitude),
-                        startLng: Number(row.Start_Longitude),
-                        endLat: Number(row.End_Latitude),
-                        endLng: Number(row.End_Longitude),
-                        // Additional data for enhanced visualization
-                        color: generateColorBySuccess(row.Migration_Success),
-                        flightDistance: row.Flight_Distance_km,
-                        duration: row.Flight_Duration_hours,
-                        speed: row.Average_Speed_kmph,
-                        altitude: row.Max_Altitude_m,
-                        region: row.Region,
-                        habitat: row.Habitat,
-                        weather: row.Weather_Condition,
-                        reason: row.Migration_Reason,
-                        success: row.Migration_Success,
-                        flockSize: row.Flock_Size
-                    }));
-
-                if (birdData.length === 0) {
-                    throw new Error('No valid data found in CSV');
-                }
-
-                createSpeciesFilter();
-                createAdditionalFilters(); // New function for more filtering options
-                hideLoader();
-                showNotification(`Successfully loaded ${birdData.length} bird migration records`);
-            } catch (error) {
-                console.error('Error processing CSV:', error);
-                displayError('Error processing CSV file. Please check the file format.');
-                hideLoader();
+    // Replace this URL with your GitHub raw CSV file URL
+    const csvUrl = 'https://raw.githubusercontent.com/amznsr/vizcon25-teamanyname/main/bird_data.csv';
+    
+    fetch(csvUrl)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
             }
-        },
-        error: function(error) {
-            console.error('Error parsing CSV:', error);
-            displayError('Failed to parse CSV file');
-            hideLoader();
-        }
-    });
-}
+            return response.text();
+        })
+        .then(csvText => {
+            Papa.parse(csvText, {
+                header: true,
+                dynamicTyping: true,
+                complete: function(results) {
+                    try {
+                        birdData = results.data
+                            .filter(row => row.Bird_ID && row.Species && row.Start_Latitude && row.Start_Longitude && 
+                                         row.End_Latitude && row.End_Longitude)
+                            .map(row => ({
+                                id: row.Bird_ID,
+                                species: row.Species,
+                                startLat: Number(row.Start_Latitude),
+                                startLng: Number(row.Start_Longitude),
+                                endLat: Number(row.End_Latitude),
+                                endLng: Number(row.End_Longitude),
+                                color: generateColorBySuccess(row.Migration_Success),
+                                flightDistance: row.Flight_Distance_km,
+                                duration: row.Flight_Duration_hours,
+                                speed: row.Average_Speed_kmph,
+                                altitude: row.Max_Altitude_m,
+                                region: row.Region,
+                                habitat: row.Habitat,
+                                weather: row.Weather_Condition,
+                                reason: row.Migration_Reason,
+                                success: row.Migration_Success,
+                                flockSize: row.Flock_Size
+                            }));
 
+                        if (birdData.length === 0) {
+                            throw new Error('No valid data found in CSV');
+                        }
+
+                        createSpeciesFilter();
+                        createAdditionalFilters();
+                        hideLoader();
+                        showNotification(`Successfully loaded ${birdData.length} bird migration records`);
+                    } catch (error) {
+                        console.error('Error processing CSV:', error);
+                        displayError('Error processing CSV file. Please check the file format.');
+                        hideLoader();
+                    }
+                },
+                error: function(error) {
+                    console.error('Error parsing CSV:', error);
+                    displayError('Failed to parse CSV file');
+                    hideLoader();
+                }
+            });
+        })
+        .catch(error => {
+            console.error('Error fetching CSV:', error);
+            displayError('Failed to fetch CSV file from GitHub');
+            hideLoader();
+        });
+}
 // Function to generate colors based on migration success
 function generateColorBySuccess(success) {
     if (success === 'Success') return 0x00ff00; // Green for successful migrations
