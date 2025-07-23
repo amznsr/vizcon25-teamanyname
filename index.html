@@ -161,7 +161,7 @@ function loadCSVData() {
                         createSpeciesFilter();
                         createAdditionalFilters();
                         hideLoader();
-                        showNotification(`Successfully loaded ${birdData.length} bird migration records`);
+                        // showNotification(`Successfully loaded ${birdData.length} bird migration records`);
                     } catch (error) {
                         console.error('Error processing CSV:', error);
                         displayError('Error processing CSV file. Please check the file format.');
@@ -495,9 +495,9 @@ function startAnimation() {
         function animate() {
             requestAnimationFrame(animate);
 
-            if (globe) {
-                globe.rotation.y += 0.001;
-            }
+            // if (globe) {
+            //     globe.rotation.y += 0.000;
+            // }
 
             migrations.forEach(migration => {
                 if (migration.progress < 1) {
