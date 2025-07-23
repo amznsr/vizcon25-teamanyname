@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enhanced 3D Bird Migration Globe</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <style>
+        body { 
+            margin: 0;
+            overflow: hidden;
+            background: #000;
+            font-family: Arial, sans-serif;
+            color: white;
+        }
+        canvas { 
+            width: 100vw;
+            height: 100vh;
+        }
+        .ui-panel {
+            position: fixed;
+            background: rgba(0,0,0,0.7);
+            padding: 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(5px);
+        }
+        #controls {
+            top: 20px;
+            left: 20px;
+        }
+        #info-panel {
+            top: 20px;
+            right: 20px;
+            width: 300px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        button {
+            background: #2a5298;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+            transition: all 0.3s ease;
+        }
+        button:hover {
+            background: #1e3c72;
+            transform: scale(1.05);
+        }
+        #species-filter {
+            margin-top: 10px;
+        }
+        .bird-info {
+            margin-bottom: 10px;
+            border-bottom: 1px solid rgba(255,255,255,0.3);
+            padding-bottom: 10px;
+        }
+        #stats {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.7);
+            padding: 10px;
+            border-radius: 5px;
+        }
+        select {
+            background: rgba(42, 82, 152, 0.8);
+            color: white;
+            border: none;
+            padding: 8px;
+            border-radius: 5px;
+            width: 100%;
+            margin-top: 10px;
+        }
+        select:hover {
+            background: rgba(30, 60, 114, 0.8);
+        }
+        #loader {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.8);
+            padding: 20px;
+            border-radius: 10px;
+            color: white;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div id="controls" class="ui-panel">
+        <button onclick="startAnimation()">Start Migration</button>
+        <button onclick="resetAnimation()">Reset</button>
+        <div id="species-filter"></div>
+    </div>
+    <div id="info-panel" class="ui-panel">
+        <h3>Active Migrations</h3>
+        <div id="migrationInfo"></div>
+    </div>
+    <div id="stats"></div>
+
+    <script>
+        let scene, camera, renderer, globe, migrations = [];
+        let birdData = [];
+        const GLOBE_RADIUS = 100;
+        let activeBirds = 0, totalDistance = 0;
+
+        init();
+        animate();
+
+function loadCSVData() {
+    showLoader();
+    Papa.parse('bird_data.csv', {
+        download: true,
+        header: true,
+        dynamicTyping: true,
+        complete: function(results) {
+            try {
+                birdData = results.data
+                    .filter(row => row.Bird_ID && row.Species && row.Start_Latitude && row.Start_Longitude && 
+                                 row.End_Latitude && row.End_Longitude)
+                    .map(row => ({
+                        id: row.Bird_ID,
+                        species: row.Species,
+                        startLat: Number(row.Start_Latitude),
+                        startLng: Number(row.Start_Longitude),
+                        endLat: Number(row.End_Latitude),
+                        endLng: Number(row.End_Longitude),
+                        // Additional data for enhanced visualization
+                        color: generateColorBySuccess(row.Migration_Success),
+                        flightDistance: row.Flight_Distance_km,
+                        duration: row.Flight_Duration_hours,
+                        speed: row.Average_Speed_kmph,
+                        altitude: row.Max_Altitude_m,
+                        region: row.Region,
+                        habitat: row.Habitat,
+                        weather: row.Weather_Condition,
+                        reason: row.Migration_Reason,
+                        success: row.Migration_Success,
+                        flockSize: row.Flock_Size
+                    }));
+
+                if (birdData.length === 0) {
+                    throw new Error('No valid data found in CSV');
+                }
+
+                createSpeciesFilter();
+                createAdditionalFilters(); // New function for more filtering options
+                hideLoader();
+                showNotification(`Successfully loaded ${birdData.length} bird migration records`);
+            } catch (error) {
+                console.error('Error processing CSV:', error);
+                displayError('Error processing CSV file. Please check the file format.');
+                hideLoader();
+            }
+        },
+        error: function(error) {
+            console.error('Error parsing CSV:', error);
+            displayError('Failed to parse CSV file');
+            hideLoader();
+        }
+    });
+}
+
+// Function to generate colors based on migration success
+function generateColorBySuccess(success) {
+    if (success === 'Success') return 0x00ff00; // Green for successful migrations
+    if (success === 'Failed') return 0xff0000;  // Red for failed migrations
+    return 0xffff00; // Yellow for unknown/other status
+}
+
+// Add additional filters
+function createAdditionalFilters() {
+    const filterDiv = document.getElementById('species-filter');
+    filterDiv.innerHTML = ''; // Clear existing filters
+
+    // Species filter
+    const speciesSelect = createFilterSelect('species-select', 'Species', 
+        [...new Set(birdData.map(bird => bird.species))]);
+    
+    // Region filter
+    const regionSelect = createFilterSelect('region-select', 'Region', 
+        [...new Set(birdData.map(bird => bird.region))]);
+    
+    // Success filter
+    const successSelect = createFilterSelect('success-select', 'Migration Success', 
+        [...new Set(birdData.map(bird => bird.success))]);
+
+    filterDiv.appendChild(speciesSelect);
+    filterDiv.appendChild(regionSelect);
+    filterDiv.appendChild(successSelect);
+}
+
+function createFilterSelect(id, label, options) {
+    const container = document.createElement('div');
+    container.style.marginBottom = '10px';
+    
+    const labelElement = document.createElement('label');
+    labelElement.textContent = label;
+    labelElement.style.display = 'block';
+    labelElement.style.marginBottom = '5px';
+    
+    const select = document.createElement('select');
+    select.id = id;
+    select.innerHTML = `<option value="All">All ${label}</option>` + 
+        options.map(opt => `<option value="${opt}">${opt}</option>`).join('');
+
+    container.appendChild(labelElement);
+    container.appendChild(select);
+    return container;
+}
+
+// Update the migration info display to show more details
+function updateMigrationInfo() {
+    const info = document.getElementById('migrationInfo');
+    info.innerHTML = migrations.map(m => 
+        `<div class="bird-info">
+            <p><strong>${m.species}</strong> (${m.id})</p>
+            <p>Progress: ${Math.round(m.progress * 100)}%</p>
+            <p>Distance: ${m.flightDistance} km</p>
+            <p>Speed: ${m.speed} km/h</p>
+            <p>Region: ${m.region}</p>
+            <p>Weather: ${m.weather}</p>
+            <p>Status: ${m.success}</p>
+        </div>`
+    ).join('');
+
+    document.getElementById('stats').innerHTML = `
+        <p>Active Birds: ${activeBirds}</p>
+        <p>Total Distance: ${Math.round(totalDistance)} km</p>
+    `;
+}
+
+// Modify startAnimation to handle multiple filters
+function startAnimation() {
+    resetAnimation();
+    const selectedSpecies = document.getElementById('species-select').value;
+    const selectedRegion = document.getElementById('region-select').value;
+    const selectedSuccess = document.getElementById('success-select').value;
+    
+    birdData.forEach(bird => {
+        if ((selectedSpecies === 'All' || bird.species === selectedSpecies) &&
+            (selectedRegion === 'All' || bird.region === selectedRegion) &&
+            (selectedSuccess === 'All' || bird.success === selectedSuccess)) {
+            const migration = createMigrationPath(bird);
+            migrations.push({
+                ...migration,
+                progress: 0,
+                flightDistance: bird.flightDistance,
+                speed: bird.speed,
+                region: bird.region,
+                weather: bird.weather,
+                success: bird.success
+            });
+        }
+    });
+
+    activeBirds = migrations.length;
+    updateMigrationInfo();
+}
+
+
+        function showLoader() {
+            const loader = document.createElement('div');
+            loader.id = 'loader';
+            loader.innerHTML = 'Loading migration data...';
+            document.body.appendChild(loader);
+        }
+
+        function hideLoader() {
+            const loader = document.getElementById('loader');
+            if (loader) {
+                loader.remove();
+            }
+        }
+
+        function displayError(message) {
+            const errorDiv = document.createElement('div');
+            errorDiv.style.cssText = `
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: rgba(255,0,0,0.8);
+                padding: 20px;
+                border-radius: 10px;
+                color: white;
+                z-index: 1000;
+            `;
+            errorDiv.textContent = message;
+            document.body.appendChild(errorDiv);
+            setTimeout(() => errorDiv.remove(), 3000);
+        }
+
+        function showNotification(message) {
+            const notification = document.createElement('div');
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: rgba(0,255,0,0.2);
+                color: white;
+                padding: 10px 20px;
+                border-radius: 5px;
+                z-index: 1000;
+            `;
+            notification.textContent = message;
+            document.body.appendChild(notification);
+            setTimeout(() => notification.remove(), 3000);
+        }
+
+        function generateRandomColor() {
+            return Math.floor(Math.random() * 0xFFFFFF);
+        }
+
+        function init() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            camera.position.z = 200;
+
+            const controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.rotateSpeed = 0.5;
+
+            createEarth();
+            createStars();
+            createLighting();
+            loadCSVData();  // This now loads the CSV data automatically
+
+            window.addEventListener('resize', onWindowResize, false);
+        }
+
+        function createEarth() {
+            const geometry = new THREE.SphereGeometry(GLOBE_RADIUS, 64, 64);
+            const textureLoader = new THREE.TextureLoader();
+            const texture = textureLoader.load('https://threejs.org/examples/textures/planets/earth_atmos_2048.jpg');
+            const bumpMap = textureLoader.load('https://threejs.org/examples/textures/planets/earth_normal_2048.jpg');
+            const material = new THREE.MeshPhongMaterial({
+                map: texture,
+                bumpMap: bumpMap,
+                bumpScale: 0.5,
+            });
+            globe = new THREE.Mesh(geometry, material);
+            scene.add(globe);
+        }
+
+        function createStars() {
+            const starGeometry = new THREE.BufferGeometry();
+            const starMaterial = new THREE.PointsMaterial({color: 0xFFFFFF});
+            const starVertices = [];
+            for (let i = 0; i < 10000; i++) {
+                const x = (Math.random() - 0.5) * 2000;
+                const y = (Math.random() - 0.5) * 2000;
+                const z = (Math.random() - 0.5) * 2000;
+                starVertices.push(x, y, z);
+            }
+            starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
+            const stars = new THREE.Points(starGeometry, starMaterial);
+            scene.add(stars);
+        }
+
+        function createLighting() {
+            const ambientLight = new THREE.AmbientLight(0x404040);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(5, 3, 5);
+            scene.add(directionalLight);
+        }
+
+        function latLngToVector3(lat, lng, radius) {
+            const phi = (90 - lat) * (Math.PI / 180);
+            const theta = (lng + 180) * (Math.PI / 180);
+
+            return new THREE.Vector3(
+                -radius * Math.sin(phi) * Math.cos(theta),
+                radius * Math.cos(phi),
+                radius * Math.sin(phi) * Math.sin(theta)
+            );
+        }
+
+        function createMigrationPath(bird) {
+            const start = latLngToVector3(bird.startLat, bird.startLng, GLOBE_RADIUS);
+            const end = latLngToVector3(bird.endLat, bird.endLng, GLOBE_RADIUS);
+
+            const points = [];
+            const segments = 100;
+            for (let i = 0; i <= segments; i++) {
+                const t = i / segments;
+                const midHeight = GLOBE_RADIUS * 0.3;
+                const pos = new THREE.Vector3().lerpVectors(start, end, t);
+                pos.normalize();
+                pos.multiplyScalar(GLOBE_RADIUS + Math.sin(Math.PI * t) * midHeight);
+                points.push(pos);
+            }
+
+            const geometry = new THREE.BufferGeometry().setFromPoints(points);
+            const material = new THREE.LineBasicMaterial({
+                color: bird.color,
+                linewidth: 2,
+                opacity: 0.8,
+                transparent: true
+            });
+
+            const path = new THREE.Line(geometry, material);
+            scene.add(path);
+
+            const birdGeometry = new THREE.SphereGeometry(0.5, 8, 8);
+            const birdMaterial = new THREE.MeshBasicMaterial({ color: bird.color });
+            const birdMesh = new THREE.Mesh(birdGeometry, birdMaterial);
+            scene.add(birdMesh);
+
+            return { path, bird: birdMesh, points, species: bird.species, id: bird.id };
+        }
+
+        function startAnimation() {
+            resetAnimation();
+            const selectedSpecies = document.getElementById('species-select').value;
+            
+            birdData.forEach(bird => {
+                if (selectedSpecies === 'All' || bird.species === selectedSpecies) {
+                    const migration = createMigrationPath(bird);
+                    migrations.push({
+                        ...migration,
+                        progress: 0
+                    });
+                }
+            });
+
+            activeBirds = migrations.length;
+            updateMigrationInfo();
+        }
+
+        function resetAnimation() {
+            migrations.forEach(migration => {
+                scene.remove(migration.path);
+                scene.remove(migration.bird);
+            });
+            migrations = [];
+            activeBirds = 0;
+            totalDistance = 0;
+            updateMigrationInfo();
+        }
+
+        function createSpeciesFilter() {
+            const species = [...new Set(birdData.map(bird => bird.species))];
+            const filterDiv = document.getElementById('species-filter');
+            filterDiv.innerHTML = '';
+            const select = document.createElement('select');
+            select.id = 'species-select';
+            select.innerHTML = '<option value="All">All Species</option>' + 
+                species.map(s => `<option value="${s}">${s}</option>`).join('');
+            filterDiv.appendChild(select);
+        }
+
+        function updateMigrationInfo() {
+            const info = document.getElementById('migrationInfo');
+            info.innerHTML = migrations.map(m => 
+                `<div class="bird-info">
+                    <p>${m.species} (${m.id}): ${Math.round(m.progress * 100)}% complete</p>
+                </div>`
+            ).join('');
+
+            document.getElementById('stats').innerHTML = `
+                <p>Active Birds: ${activeBirds}</p>
+                <p>Total Distance: ${Math.round(totalDistance)} km</p>
+            `;
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (globe) {
+                globe.rotation.y += 0.001;
+            }
+
+            migrations.forEach(migration => {
+                if (migration.progress < 1) {
+                    migration.progress += 0.001;
+                    const point = migration.points[Math.floor(migration.progress * migration.points.length)];
+                    if (point) {
+                        migration.bird.position.copy(point);
+                        totalDistance += 0.1;
+                    }
+                }
+            });
+
+            updateMigrationInfo();
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+    </script>
+</body>
+</html>
